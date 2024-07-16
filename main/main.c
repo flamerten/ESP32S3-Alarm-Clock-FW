@@ -17,17 +17,23 @@ static const char *TAG = "main.c";
 
 static esp_err_t main_i2c_master_init(void);
 static void test_pcf(void);
+static void init_gpios(void);
+
 
 void app_main(void)
 {   
     ESP_LOGI(TAG,"Hello World");
     printf("Hello World");
 
+    init_gpios();
+
     main_i2c_master_init();
 
     test_pcf();
 
 }
+
+// Functions ---------------------------------
 
 static esp_err_t main_i2c_master_init(void)
 {
@@ -47,22 +53,39 @@ static esp_err_t main_i2c_master_init(void)
 
 static void test_pcf(void)
 {
-    PCF8523_Config rtc_config;
-    pcf8523_init(&rtc_config,I2C_PORT);
+    pcf8523_init(I2C_PORT);
 
-    Datetime datetime_obj;
-    pcf_8523_timenow(&datetime_obj, &rtc_config);
+    DateTime datetime_obj;
+    pcf_8523_timenow(&datetime_obj);
 
     datetime_obj.seconds = 0;
     datetime_obj.minutes = RTC_MINS;
     datetime_obj.hours = RTC_HOURS;
 
     print_datetime(&datetime_obj);
-    pcf8523_adjustTime(&datetime_obj,&rtc_config);
+    pcf8523_adjustTime(&datetime_obj);
 
     vTaskDelay(5000/portTICK_PERIOD_MS);
 
-    pcf_8523_timenow(&datetime_obj, &rtc_config);
+    pcf_8523_timenow(&datetime_obj);
     print_datetime(&datetime_obj);
+
+}
+
+/**
+ * @brief Initialise the LEDs and the Mosfet controlling the Buck Converter. 
+ * WARNING: The buck converter MUST be turned on for peripherals on the I2C Bus to work.
+ * 
+ */
+static void init_gpios(void)
+{   
+    gpio_set_direction(LED0,GPIO_MODE_OUTPUT);
+    gpio_set_direction(LED1,GPIO_MODE_OUTPUT);
+    gpio_set_direction(BUCK,GPIO_MODE_OUTPUT);
+
+    gpio_set_pull_mode(LED0,GPIO_PULLDOWN_ENABLE);
+    gpio_set_pull_mode(LED1,GPIO_PULLDOWN_ENABLE);
+
+    gpio_set_level(BUCK,1); //Turn on 3V7 for i2c bus
 
 }

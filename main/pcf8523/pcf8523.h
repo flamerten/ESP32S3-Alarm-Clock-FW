@@ -1,4 +1,5 @@
 #ifndef PCF8523_DRV
+
 #define PCF8523_DRV
 
 #include <stdint.h>
@@ -9,8 +10,6 @@
 
 #include "esp_log.h"
 #include "driver/i2c.h"
-
-#include "TimedateTypes.h"
 
 #define PCF8523_ADDRESS 0x68       ///< I2C address for PCF8523
 #define PCF8523_CLKOUTCONTROL 0x0F ///< Timer and CLKOUT control register
@@ -26,9 +25,13 @@
 
 #define I2C_MASTER_TIMEOUT_MS 1000
 
+#define PCF8523_INIT_FALSE_ERR -2
 
-/*
-typedef struct
+/**
+ * @brief Struct to hold date variables
+ * 
+ */
+typedef struct DateTime
 {
     uint8_t seconds;
     uint8_t minutes;
@@ -39,8 +42,7 @@ typedef struct
 
     uint8_t month;
     uint32_t year;
-}Datetime;
-*/
+} DateTime;
 
 typedef struct
 {
@@ -55,12 +57,15 @@ typedef struct
 
 //PCF
 
-int32_t pcf8523_init(PCF8523_Config *sensor_cfg,i2c_port_t i2c_port_num);
-int32_t pcf_8523_timenow(Datetime* time_now, PCF8523_Config* sensor_cfg);
-int32_t pcf8523_adjustTime(Datetime* time_now, PCF8523_Config* sensor_cfg);
+static PCF8523_Config pcf8523_config;
+static uint8_t pcf_init_called = 0;
+
+int32_t pcf8523_init(i2c_port_t i2c_port_num);
+int32_t pcf_8523_timenow(DateTime* time_now);
+int32_t pcf8523_adjustTime(DateTime* time_now);
 
 //Utility
 
-void print_datetime(Datetime *datetime);
+void print_datetime(DateTime *datetime);
 
 #endif //PCF8523_DRV
