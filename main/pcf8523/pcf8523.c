@@ -116,28 +116,74 @@ static uint8_t bin2bcd(uint8_t val)
 
 // Gloabal PCF Functions ---------------------------------------/
 
+/**
+ * @brief Initiate sofware reset of PCF8523. Used as a way to check if the sensor
+ * exists on the I2C bus. I2C bus MUST be initialised before calling the function. 
+ * 
+ * @param i2c_port_num 
+ * @return int32_t 
+ */
 int32_t pcf8523_init(i2c_port_t i2c_port_num)
 {
-    
     //Configure I2C Sensor
     pcf8523_config.i2c_sensor_handle.i2c_addr = PCF8523_ADDRESS;
     pcf8523_config.i2c_sensor_handle.i2c_port_num = i2c_port_num;
     pcf_init_called = true;
 
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, ( PCF8523_ADDRESS << 1) | I2C_MASTER_WRITE, 1 /* expect ack */);
-    i2c_master_stop(cmd);   
+    // DEPRECEATED INIT -> Used to write write a byte to the address and look for an ack return
+    // i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    // i2c_master_start(cmd);
+    // i2c_master_write_byte(cmd, ( PCF8523_ADDRESS << 1) | I2C_MASTER_WRITE, 1 /* expect ack */);
+    // i2c_master_stop(cmd);   
+    // esp_err_t res = i2c_master_cmd_begin(i2c_port_num, cmd, I2C_MASTER_TIMEOUT_MS/portTICK_PERIOD_MS);
+    // i2c_cmd_link_delete(cmd);
 
-    esp_err_t res = i2c_master_cmd_begin(i2c_port_num, cmd, I2C_MASTER_TIMEOUT_MS/portTICK_PERIOD_MS);
+    uint8_t buffer[1] = {PCF8523_RST};
 
-    i2c_cmd_link_delete(cmd);
+    int32_t res = platform_write(
+        &(pcf8523_config.i2c_sensor_handle),
+        PCF8523_CONTROL_1,
+        buffer,
+        1);
 
 
     if(res == 0) pcf_init_called = true;
-
     return handle_err("PCF init",res);
     
+}
+ 
+int32_t pcf8523_configure_ctrl1(bool capacitance, bool time_mode)
+{   
+    if(pcf_init_called == false) return PCF8523_INIT_FALSE_ERR;
+    int32_t err;
+
+    uint8_t buffer[1];
+    err = platform_read(
+        &(pcf8523_config.i2c_sensor_handle),
+        PCF8523_CONTROL_1,
+        buffer,
+        1
+    );
+
+    uint8_t current_val = buffer[0];
+
+    if(capacitance == PCF8523_CTRL_7PF)     current_val = current_val & 0b01111111;
+    else /*PCF8523_CTRL_12PF5*/             current_val = current_val | ~(0b01111111);
+    
+    if(time_mode == PCF8523_CTRL_12HR_MODE) current_val = current_val | 0b00001000;
+    else /*PCF8523_CTRL_24HR_MODE*/         current_val = current_val & ~(0b00001000);
+
+    buffer[0] = current_val;
+
+    err = platform_write(
+        &(pcf8523_config.i2c_sensor_handle),
+        PCF8523_CONTROL_1,
+        buffer,
+        1
+    );
+
+    return handle_err("Configure ctrl 1",err);
+
 }
 
 /**
@@ -148,7 +194,7 @@ int32_t pcf8523_init(i2c_port_t i2c_port_num)
  */
 int32_t pcf_8523_timenow(DateTime* time_now)
 {   
-    if(pcf_init_called == false) return -2;
+    if(pcf_init_called == false) return PCF8523_INIT_FALSE_ERR;
     uint8_t buffer[7];
     uint8_t res = platform_read(
         &(pcf8523_config.i2c_sensor_handle),
@@ -176,7 +222,7 @@ int32_t pcf_8523_timenow(DateTime* time_now)
  */
 int32_t pcf8523_adjustTime(DateTime* time_now)
 {   
-    if(pcf_init_called == false) return -2;
+    if(pcf_init_called == false) return PCF8523_INIT_FALSE_ERR;
     uint8_t buffer[7] = {bin2bcd(time_now->seconds),
                          bin2bcd(time_now->minutes),
                          bin2bcd(time_now->hours),
