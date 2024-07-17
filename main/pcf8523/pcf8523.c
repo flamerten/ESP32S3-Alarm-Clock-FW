@@ -6,9 +6,10 @@
  * Source
  *  - https://github.com/adafruit/RTClib/blob/master/src/RTClib.h
  *  - https://github.com/adafruit/RTClib/blob/master/src/RTC_PCF8523.cpp
+ *  - https://www.nxp.com/docs/en/data-sheet/PCF8523.pdf 
  * 
- * The goal is to create a platform independent driver where the user simply has to edit certain functions and get the 
- * PCF driver working in any embedded environment
+ * The goal is to create a platform independent driver where the user simply has to edit the platform independent commands
+ * to get the PCF driver working in any embedded environment
  * 
  */
 
@@ -36,7 +37,7 @@ static int32_t handle_err(char *TAG, int32_t err)
     else if(err == ESP_ERR_INVALID_ARG)     ESP_LOGE(TAG,"Sending command error, slave hasn’t ACK the transfer.");
     else if(err == ESP_ERR_INVALID_STATE)   ESP_LOGE(TAG,"I2C driver not installed or not in master mode");
     else if(err == ESP_ERR_TIMEOUT)         ESP_LOGE(TAG,"Operation timeout because the bus is busy");
-    else                                    ESP_LOGE(TAG,"Unkown Error %d", (int)err); //Print in hex format 
+    else                                    ESP_LOGE(TAG,"Unkown Error %d", (int)err); //Print in error code in hex format 
 
     return 1;
 }
@@ -151,7 +152,14 @@ int32_t pcf8523_init(i2c_port_t i2c_port_num)
     return handle_err("PCF init",res);
     
 }
- 
+
+/**
+ * @brief Write to the CTRL1 register to configure the capacitance (CAP_SEL) and the time_mode (12_24)
+ * 
+ * @param capacitance PCF8523_CTRL_7PF or PCF8523_CTRL_12PF5
+ * @param time_mode   PCF8523_CTRL_12HR_MODE or PCF8523_CTRL_24HR_MODE
+ * @return int32_t    output of handle_err
+ */
 int32_t pcf8523_configure_ctrl1(bool capacitance, bool time_mode)
 {   
     if(pcf_init_called == false) return PCF8523_INIT_FALSE_ERR;
