@@ -43,7 +43,7 @@
  * @brief Struct to hold date variables
  * 
  */
-typedef struct DateTime
+typedef struct Datetime
 {
     uint8_t seconds;
     uint8_t minutes;
@@ -56,7 +56,7 @@ typedef struct DateTime
     uint32_t year;
 
     uint32_t last_pcf_update;   //esp_log_timestamp to check when the struct was last updated
-} DateTime;
+} Datetime;
 
 /**
  * @brief Struct that is passed into platform_read and platform write
@@ -79,12 +79,12 @@ static PCF8523_Config pcf8523_config;
 static uint8_t pcf_init_called = 0;
 
 int32_t pcf8523_init(i2c_port_t i2c_port_num);
-int32_t pcf8523_timenow(DateTime* time_now);
-int32_t pcf8523_adjustTime(DateTime* time_now);
+int32_t pcf8523_get_datetime(Datetime* time_now);
+int32_t pcf8523_adjust_datetime(Datetime* time_now);
 int32_t pcf8523_configure_ctrl1(bool capacitance, bool time_mode);
 
 //Utility
 
-void print_datetime(DateTime *datetime);
+void print_datetime(Datetime *datetime);
 
 #endif //PCF8523_DRV

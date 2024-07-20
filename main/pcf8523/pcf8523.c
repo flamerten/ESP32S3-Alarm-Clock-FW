@@ -200,7 +200,7 @@ int32_t pcf8523_configure_ctrl1(bool capacitance, bool time_mode)
  * @param time_now     Datetime
  * @return int32_t     0 if no errors
  */
-int32_t pcf8523_timenow(DateTime* time_now)
+int32_t pcf8523_get_datetime(Datetime* time_now)
 {   
     if(pcf_init_called == false) return PCF8523_INIT_FALSE_ERR;
     uint8_t buffer[7];
@@ -228,7 +228,7 @@ int32_t pcf8523_timenow(DateTime* time_now)
  * @param time_now     Datetime*
  * @return int32_t     0 if no errors
  */
-int32_t pcf8523_adjustTime(DateTime* time_now)
+int32_t pcf8523_adjust_datetime(Datetime* time_now)
 {   
     if(pcf_init_called == false) return PCF8523_INIT_FALSE_ERR;
     uint8_t buffer[7] = {bin2bcd(time_now->seconds),
@@ -248,7 +248,7 @@ int32_t pcf8523_adjustTime(DateTime* time_now)
     return res;      
 }
 
-void print_datetime(DateTime *datetime)
+void print_datetime(Datetime *datetime)
 {
     printf("Date> %i-%i-%lu ",
         datetime->day,
