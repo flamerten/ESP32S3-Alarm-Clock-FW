@@ -14,6 +14,8 @@
 #define RTC_HOURS    12
 
 #define PB_VALID_PRESS 50        // Debounce Time
+#define PB_ACTIVE_HIGH 1
+#define PB_ACTIVE_LOW 0
 
 typedef struct PushButton
 {   
@@ -74,8 +76,8 @@ void app_main(void)
 
     PushButton pb1_config;
     PushButton pb2_config;
-    pushbutton_configure(&pb1_config, PCB_PB1, 0);
-    pushbutton_configure(&pb2_config, PCB_PB2, 0);
+    pushbutton_configure(&pb1_config, PCB_PB1, PB_ACTIVE_LOW);
+    pushbutton_configure(&pb2_config, PCB_PB2, PB_ACTIVE_LOW);
 
 
     if(init_err != 0){
@@ -114,12 +116,7 @@ void app_main(void)
             led1_on = !led1_on;
             gpio_set_level(PCB_LED1, led1_on);
         }
-
-
     }
-
-
-
 }
 
 // Functions ---------------------------------
@@ -141,7 +138,7 @@ static esp_err_t main_i2c_master_init(void)
 }
 
 /**
- * @brief Initialise the LEDs  and the Mosfet controlling the Buck Converter. 
+ * @brief Initialise the LEDs and the Mosfet controlling the Buck Converter. 
  * WARNING: The buck converter MUST be turned on for peripherals on the I2C Bus to work.
  * 
  */
@@ -176,8 +173,8 @@ static int32_t ws2812_show_datetime(DateTime *time_now, led_strip_handle_t strip
     ws2812_show_number(hours   / 10,  3,strip_handle);
     ws2812_show_number(hours   % 10,  2,strip_handle);
 
-    ws2812_show_number(minutes / 10,1,strip_handle);
-    ws2812_show_number(minutes % 10,0,strip_handle);
+    ws2812_show_number(minutes / 10,  1,strip_handle);
+    ws2812_show_number(minutes % 10,  0,strip_handle);
 
     err = ws2812_show(strip_handle);
 
@@ -185,7 +182,8 @@ static int32_t ws2812_show_datetime(DateTime *time_now, led_strip_handle_t strip
 }
 
 /**
- * @brief Fills up the Pushbutton struct with the gpio_num and whether it is an active high switch or active low switch
+ * @brief Fills up the Pushbutton struct with the gpio_num and whether it is an active high switch or active low switch.
+ * Also initialises the GPIOs by setting it as input and whether its pullup or pulldown.
  * 
  * @param push_button_config    pointer
  * @param gpio_num              gpio_num_t 
@@ -207,7 +205,7 @@ static void pushbutton_configure(PushButton *push_button_config, gpio_num_t gpio
 }
 
 /**
- * @brief 
+ * @brief Polling of pushbutton to check if it was called.
  * 
  * @param push_button_config Pointer
  * @return true     Button Press detected 

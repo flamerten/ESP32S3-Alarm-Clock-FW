@@ -1,7 +1,7 @@
 /**
  * @file ws2812_leds.h
  * @author Samuel Yow
- * @brief .h file for controlling the ws2812_leds on the PCB using the led_strip component directory
+ * @brief .h file for controlling the ws2812_leds on the ESP32s3 custom PCB using the led_strip esp idf component directory
  * 
  * 
  */
