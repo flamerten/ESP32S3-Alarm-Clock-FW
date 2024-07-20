@@ -119,8 +119,9 @@ int32_t ws2812_set_pixel_rgb(led_strip_handle_t strip_handle, uint32_t index,
 }
 
 /**
- * @brief WIP. Based on the digit with the leftmost one being 0 and the rightmost one being 3, show,
- * display a number on that digit with (r,g,b) = (5,5,5). For testing purposes.
+ * @brief WIP. Based on the digit with the rightmost one being 0 and the leftmost one being 3, show,
+ * display a number on that digit with (r,g,b) = (5,5,5). For testing purposes. Write 255 to the
+ * number to clear the digit.
  * 
  * @param number 
  * @param digit 
@@ -134,16 +135,17 @@ int32_t ws2812_show_number(uint8_t number, uint8_t digit, led_strip_handle_t str
     uint8_t show_val = 0;
 
     switch(number){
-        case(0): digit_map = DIGIT_MAP_0; break;
-        case(1): digit_map = DIGIT_MAP_1; break;
-        case(2): digit_map = DIGIT_MAP_2; break;
-        case(3): digit_map = DIGIT_MAP_3; break;
-        case(4): digit_map = DIGIT_MAP_4; break;
-        case(5): digit_map = DIGIT_MAP_5; break;
-        case(6): digit_map = DIGIT_MAP_6; break;
-        case(7): digit_map = DIGIT_MAP_7; break;
-        case(8): digit_map = DIGIT_MAP_8; break;
-        case(9): digit_map = DIGIT_MAP_9; break;
+        case(0):   digit_map = DIGIT_MAP_0; break;
+        case(1):   digit_map = DIGIT_MAP_1; break;
+        case(2):   digit_map = DIGIT_MAP_2; break;
+        case(3):   digit_map = DIGIT_MAP_3; break;
+        case(4):   digit_map = DIGIT_MAP_4; break;
+        case(5):   digit_map = DIGIT_MAP_5; break;
+        case(6):   digit_map = DIGIT_MAP_6; break;
+        case(7):   digit_map = DIGIT_MAP_7; break;
+        case(8):   digit_map = DIGIT_MAP_8; break;
+        case(9):   digit_map = DIGIT_MAP_9; break;
+        case(255): digit_map = DIGIT_CLEAR; break;
     }
 
     for(int i = 0; i < 7; i++)

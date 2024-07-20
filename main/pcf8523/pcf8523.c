@@ -200,7 +200,7 @@ int32_t pcf8523_configure_ctrl1(bool capacitance, bool time_mode)
  * @param time_now     Datetime
  * @return int32_t     0 if no errors
  */
-int32_t pcf_8523_timenow(DateTime* time_now)
+int32_t pcf8523_timenow(DateTime* time_now)
 {   
     if(pcf_init_called == false) return PCF8523_INIT_FALSE_ERR;
     uint8_t buffer[7];

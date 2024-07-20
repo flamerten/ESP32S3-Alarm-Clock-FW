@@ -7,8 +7,8 @@
 #define PCB_LED0            GPIO_NUM_15           //Active High LED
 #define PCB_LED1            GPIO_NUM_16           //Active High LED
  
-#define PCB_PB1             GPIO_NUM_18           //Active Low PB, (Low when pressed)
-#define PCB_PB2             GPIO_NUM_8            //Active Low PB, (Low when pressed)
+#define PCB_PB_RIGHT        GPIO_NUM_18           //Active Low PB, (Low when pressed)
+#define PCB_PB_LEFT         GPIO_NUM_8            //Active Low PB, (Low when pressed)
  
 #define PCB_BUCK_CTRL       GPIO_NUM_9            //Active High Switch to turn on buck converter (3V7)
  

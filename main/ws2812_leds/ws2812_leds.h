@@ -28,6 +28,7 @@
 #define DIGIT_MAP_7  0b0000111
 #define DIGIT_MAP_8  0b1111111
 #define DIGIT_MAP_9  0b0011111
+#define DIGIT_CLEAR  0b0000000
 
 
 

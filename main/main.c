@@ -15,7 +15,7 @@
 
 #define PB_VALID_PRESS 50        // Debounce Time
 #define PB_ACTIVE_HIGH 1
-#define PB_ACTIVE_LOW 0
+#define PB_ACTIVE_LOW  0
 
 typedef struct PushButton
 {   
@@ -30,6 +30,10 @@ typedef struct PushButton
 
 } PushButton;
 
+enum StateMachine {
+  MODE_IDLE = 0,
+  MODE_SET_TIME,  
+};
 
 static const char *TAG = "main.c";
 
@@ -49,7 +53,7 @@ void app_main(void)
     ESP_LOGI(TAG,"Hello World");
     printf("Hello World\n");
 
-    //Initialisation
+    //Initialisation -----------------------------
 
     init_gpios();
     main_i2c_master_init();
@@ -59,63 +63,118 @@ void app_main(void)
     init_err = pcf8523_init(PCB_I2C_PORT);
     init_err = pcf8523_configure_ctrl1(PCF8523_CTRL_7PF, PCF8523_CTRL_12HR_MODE);
 
-    DateTime datetime_register_shown;
-    DateTime datetime_register_now;
+    led_strip_handle_t ClockLEDs;
+    init_err = ws2812_init_leds(&ClockLEDs, PCB_NEOPIXEL_PIN, PCB_NEOPIXEL_COUNT);
 
-    datetime_register_shown.minutes = RTC_MINS;
-    datetime_register_shown.hours = RTC_HOURS;
-
-    datetime_register_now.minutes = RTC_MINS;
-    datetime_register_now.hours = RTC_HOURS;
-
-    init_err = pcf8523_adjustTime(&datetime_register_shown);
-
-    led_strip_handle_t clock_leds;
-    init_err = ws2812_init_leds(&clock_leds, PCB_NEOPIXEL_PIN, PCB_NEOPIXEL_COUNT);
-    init_err = ws2812_show_datetime(&datetime_register_now,clock_leds);
-
-    PushButton pb1_config;
-    PushButton pb2_config;
-    pushbutton_configure(&pb1_config, PCB_PB1, PB_ACTIVE_LOW);
-    pushbutton_configure(&pb2_config, PCB_PB2, PB_ACTIVE_LOW);
-
+    PushButton PbLeftConfig;
+    PushButton PbRightConfig;
+    pushbutton_configure(&PbLeftConfig, PCB_PB_LEFT, PB_ACTIVE_LOW);
+    pushbutton_configure(&PbRightConfig, PCB_PB_RIGHT, PB_ACTIVE_LOW);
 
     if(init_err != 0){
         ESP_LOGE(TAG,"Error in initialising");
     }
-    
-    bool curr_led_status;
 
-    bool led0_on = false;
-    bool led1_on = false;
+    // Set up -----------------------------
+
+    DateTime DatetimeShown;  // The Datetime shown on the LEDs
+    DateTime DatetimeNow;    // The Datetime extracted from the RTC
+
+    DatetimeShown.minutes = RTC_MINS;
+    DatetimeShown.hours = RTC_HOURS;
+
+    DatetimeNow.minutes = RTC_MINS;
+    DatetimeNow.hours = RTC_HOURS;
+
+    pcf8523_adjustTime(&DatetimeShown);
+    ws2812_show_datetime(&DatetimeNow,ClockLEDs);
+
+    enum StateMachine curr_mode = MODE_IDLE;
+    bool IDLE_digit_update_hours = 0;        // 0 is hours, 1 is updating minutes
+
+    uint32_t last_blink_time = 0;
+    bool blink_status = 0;                   // Used during MODE_IDLE to blink the digits that are being updated
 
     //Main Event Loop
     while(1)
-    {
-        pcf_8523_timenow(&datetime_register_now);
-        
-        if( (datetime_register_shown.minutes != datetime_register_now.minutes) ||
-            (datetime_register_shown.hours != datetime_register_now.hours) )
+    {   
+        if(curr_mode == MODE_IDLE)
         {
-            //Update Registers
-            datetime_register_shown.minutes = datetime_register_now.minutes;
-            datetime_register_shown.hours = datetime_register_now.hours;
+            //Update PCF Display based on RTC Time in IDLE_MODE
+            pcf8523_timenow(&DatetimeNow);
 
-            printf("New Timing: %i:%i \n",datetime_register_shown.hours,datetime_register_shown.minutes);
+            if( (DatetimeShown.minutes != DatetimeNow.minutes) ||
+                (DatetimeShown.hours != DatetimeNow.hours) )
+            {
+                //Update Registers
+                DatetimeShown.minutes = DatetimeNow.minutes;
+                DatetimeShown.hours = DatetimeNow.hours;
 
-            ws2812_show_datetime(&datetime_register_shown,clock_leds);
+                printf("New Timing: %i:%i \n",DatetimeShown.hours,DatetimeShown.minutes);
+
+                ws2812_show_datetime(&DatetimeShown,ClockLEDs);
+            }
+
+            if(pushbutton_press_detected(&PbLeftConfig) || pushbutton_press_detected(&PbRightConfig)){ //Press any button to switch to set time mode
+                ESP_LOGI(TAG,"Changing to MODE_SET_TIME");
+                DatetimeNow.last_pcf_update = esp_log_timestamp();
+                curr_mode = MODE_SET_TIME;
+            }
+        }
+        else if(curr_mode == MODE_SET_TIME){
+            //No update of the PCF happens here
+            uint32_t curr_time = esp_log_timestamp();
+
+            if(pushbutton_press_detected(&PbLeftConfig))      //Switch to hours/minutes
+            {
+                IDLE_digit_update_hours = !IDLE_digit_update_hours; 
+
+                DatetimeNow.last_pcf_update = curr_time;
+                ESP_LOGI(TAG,"Changing digit update hours %i",IDLE_digit_update_hours);
+            }
+            else if(pushbutton_press_detected(&PbRightConfig)) //Increment hours/minutes
+            {
+                if(IDLE_digit_update_hours){
+                    ESP_LOGI(TAG,"Time Now %i:%i",DatetimeNow.hours,DatetimeNow.minutes);
+                    if(DatetimeNow.hours >= 12)   DatetimeNow.hours = 1;
+                    else                          DatetimeNow.hours = DatetimeNow.hours + 1;
+
+                    DatetimeNow.last_pcf_update = curr_time;
+                    ESP_LOGI(TAG,"Changing hours to %i",DatetimeNow.hours);
+                }
+                else{
+                    ESP_LOGI(TAG,"Time Now %i:%i",DatetimeNow.hours,DatetimeNow.minutes);
+                    if(DatetimeNow.minutes >= 59)  DatetimeNow.minutes = 0;
+                    else                           DatetimeNow.minutes = DatetimeNow.minutes + 1;
+                    ESP_LOGI(TAG,"Changing minutes to %i",DatetimeNow.minutes);
+
+                    DatetimeNow.last_pcf_update = curr_time;
+                }
+            }
+            else if(curr_time - DatetimeNow.last_pcf_update >= 5000){ //If no change for 5s, switch back to idle mode
+                curr_mode = MODE_IDLE;
+                pcf8523_adjustTime(&DatetimeNow); //Write new val to PCF
+                ESP_LOGI(TAG,"Changing to MODE_IDLE");
+            }
+
+            //Show result on the clock, and blink the digit
+            DatetimeShown.minutes = DatetimeNow.minutes;
+            DatetimeShown.hours = DatetimeNow.hours;
+
+            if(blink_status){
+                if(IDLE_digit_update_hours) DatetimeShown.hours   = 255;
+                else                        DatetimeShown.minutes = 255;
+            }
+            
+            if(curr_time - last_blink_time >= 500){ //Blink the digit every 0.5s
+                blink_status = !blink_status;
+                last_blink_time = curr_time;
+            }
+            
+            ws2812_show_datetime(&DatetimeShown,ClockLEDs);
+            
         }
 
-        
-        if(pushbutton_press_detected(&pb1_config)){
-            led0_on = !led0_on;
-            gpio_set_level(PCB_LED0, led0_on);
-        }
-
-        if(pushbutton_press_detected(&pb2_config)){
-            led1_on = !led1_on;
-            gpio_set_level(PCB_LED1, led1_on);
-        }
     }
 }
 
@@ -159,7 +218,7 @@ static void init_gpios(void)
  * @brief Show the time currently in the DateTime Struct 
  * 
  * @param time_now 
- * @param strip_handle 
+ * @param strip_handle
  * @return int32_t 
  */
 static int32_t ws2812_show_datetime(DateTime *time_now, led_strip_handle_t strip_handle)
@@ -169,15 +228,25 @@ static int32_t ws2812_show_datetime(DateTime *time_now, led_strip_handle_t strip
     int32_t err;
 
     err = ws2812_clear(strip_handle);
+    if(hours == 255){
+        ws2812_show_number(255,  3,strip_handle);
+        ws2812_show_number(255,  2,strip_handle);
+    }
+    else{
+        ws2812_show_number(hours   / 10,  3,strip_handle);
+        ws2812_show_number(hours   % 10,  2,strip_handle);
+    }
 
-    ws2812_show_number(hours   / 10,  3,strip_handle);
-    ws2812_show_number(hours   % 10,  2,strip_handle);
-
-    ws2812_show_number(minutes / 10,  1,strip_handle);
-    ws2812_show_number(minutes % 10,  0,strip_handle);
-
+    if(minutes == 255){
+        ws2812_show_number(255,  1,strip_handle);
+        ws2812_show_number(255,  0,strip_handle);
+    }
+    else{
+        ws2812_show_number(minutes / 10,  1,strip_handle);
+        ws2812_show_number(minutes % 10,  0,strip_handle);
+    }
+    
     err = ws2812_show(strip_handle);
-
     return err;
 }
 
@@ -220,8 +289,8 @@ static bool pushbutton_press_detected(PushButton *push_button_config)
 
     push_button_config->last_reading = curr_level;
 
-    if      ( (push_button_config->active_high == 1) && (curr_level == 0) ) return 0;
-    else if ( (push_button_config->active_high == 0) && (curr_level == 1) ) return 0;
+    if      ( (push_button_config->active_high == PB_ACTIVE_HIGH) && (curr_level == 0) ) return 0;
+    else if ( (push_button_config->active_high == PB_ACTIVE_LOW)  && (curr_level == 1) ) return 0;
     else if (  ((curr_time - push_button_config->last_positive_read)  > PB_VALID_PRESS) && change_detected)
     {   
         ESP_LOGI("PB", "%i Level: %i", push_button_config->gpio_pin_no, curr_level);

@@ -54,6 +54,8 @@ typedef struct DateTime
 
     uint8_t month;
     uint32_t year;
+
+    uint32_t last_pcf_update;   //esp_log_timestamp to check when the struct was last updated
 } DateTime;
 
 /**
@@ -77,7 +79,7 @@ static PCF8523_Config pcf8523_config;
 static uint8_t pcf_init_called = 0;
 
 int32_t pcf8523_init(i2c_port_t i2c_port_num);
-int32_t pcf_8523_timenow(DateTime* time_now);
+int32_t pcf8523_timenow(DateTime* time_now);
 int32_t pcf8523_adjustTime(DateTime* time_now);
 int32_t pcf8523_configure_ctrl1(bool capacitance, bool time_mode);
 
