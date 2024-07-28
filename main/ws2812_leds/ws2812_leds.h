@@ -43,4 +43,5 @@ int32_t ws2812_set_pixel_rgb(led_strip_handle_t strip_handle, uint32_t index,
 
 int32_t ws2812_show_number(uint8_t number, uint8_t digit, led_strip_handle_t strip_handle);
 
+int32_t ws2812_update_buffer(uint8_t number, uint8_t digit, int32_t buffer);
 #endif //WS2812_LEDS
