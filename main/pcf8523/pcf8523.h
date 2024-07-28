@@ -34,28 +34,30 @@
 
 #define PCF8523_CTRL_7PF          0        //Quartz Crystal Load Capacitance (7pF def)
 #define PCF8523_CTRL_12PF5        1        //Quartz Crystal Load Capacitance (12.5pF)
-#define PCF8523_CTRL_12HR_MODE    1        //12 Hour Mode
-#define PCF8523_CTRL_24HR_MODE    1        //24 Hour Mode Default
 
 
 
 /**
- * @brief Struct to hold date variables
+ * @brief Struct to hold date variables.
  * 
  */
 typedef struct Datetime
 {
-    uint8_t seconds;
-    uint8_t minutes;
-    uint8_t hours;
+    uint8_t seconds;          // 0 - 59 
+    uint8_t minutes;          // 0 - 59
+    uint8_t hours;            // 0 - 23 (Default to 24 hour mode)
 
-    uint8_t day;
-    uint8_t weekday;
+    uint8_t day;              // 1 - 31
+    uint8_t weekday;          // 0 - 6
 
-    uint8_t month;
-    uint32_t year;
+    uint8_t month;            // 1 - 12
+    uint32_t year;            // 0 - 99
 
     uint32_t last_pcf_update;   //esp_log_timestamp to check when the struct was last updated
+
+    bool show_hours;           //Show on clock?
+    bool show_minutes;         //Show on clock?
+
 } Datetime;
 
 /**
@@ -75,13 +77,10 @@ typedef struct
 
 //PCF
 
-static PCF8523_Config pcf8523_config;
-static uint8_t pcf_init_called = 0;
-
 int32_t pcf8523_init(i2c_port_t i2c_port_num);
 int32_t pcf8523_get_datetime(Datetime* time_now);
 int32_t pcf8523_adjust_datetime(Datetime* time_now);
-int32_t pcf8523_configure_ctrl1(bool capacitance, bool time_mode);
+int32_t pcf8523_set_capacitance(bool capacitance);
 
 //Utility
 

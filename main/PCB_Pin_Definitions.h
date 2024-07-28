@@ -23,6 +23,7 @@
  
 #define PCB_LSM_INT1        GPIO_NUM_40           // LSM6DSOX INT1 pin, direct connection
 #define PCB_LSM_INT2        GPIO_NUM_41           // LSM6DSOX INT2 pin, direct connection
+#define PCB_LSM_SA          0                     // SA on LSM6DSOX is grounded
  
 #define PCB_PCF_INT1        GPIO_NUM_2            // PCF8523 INT1 pin, direct connection
  

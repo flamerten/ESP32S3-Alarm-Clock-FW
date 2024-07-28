@@ -19,6 +19,18 @@
 
 char* DaysOfTheWeek[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
 
+/**
+ * @brief Main PCF Object. We assume that there is only one PCF on one mcu at any one time hence
+ * it is always initialsied at the start.
+ * 
+ */
+static PCF8523_Config pcf8523_config;
+
+/**
+ * @brief Ensures that pcf_init is always called first before calling other functions
+ * 
+ */
+static bool pcf_init_called = false;
 // Platform Independent Commands --------------------------------/
 
 /**
@@ -119,7 +131,8 @@ static uint8_t bin2bcd(uint8_t val)
 
 /**
  * @brief Initiate sofware reset of PCF8523. Used as a way to check if the sensor
- * exists on the I2C bus. I2C bus MUST be initialised before calling the function. 
+ * exists on the I2C bus. I2C bus MUST be initialised before calling the function. Note that
+ * the driver assumes that there is ONE and only ONE PCF8523 connected to the I2C bus.
  * 
  * @param i2c_port_num 
  * @return int32_t 
@@ -129,7 +142,7 @@ int32_t pcf8523_init(i2c_port_t i2c_port_num)
     //Configure I2C Sensor
     pcf8523_config.i2c_sensor_handle.i2c_addr = PCF8523_ADDRESS;
     pcf8523_config.i2c_sensor_handle.i2c_port_num = i2c_port_num;
-    pcf_init_called = true;
+    
 
     // DEPRECEATED INIT -> Used to write write a byte to the address and look for an ack return
     // i2c_cmd_handle_t cmd = i2c_cmd_link_create();
@@ -147,10 +160,9 @@ int32_t pcf8523_init(i2c_port_t i2c_port_num)
         buffer,
         1);
 
-
-    if(res == 0) pcf_init_called = true;
-    return handle_err("PCF init",res);
+    if(res==0) pcf_init_called = true;
     
+    return handle_err("PCF init",res);
 }
 
 /**
@@ -160,7 +172,7 @@ int32_t pcf8523_init(i2c_port_t i2c_port_num)
  * @param time_mode   PCF8523_CTRL_12HR_MODE or PCF8523_CTRL_24HR_MODE
  * @return int32_t    output of handle_err
  */
-int32_t pcf8523_configure_ctrl1(bool capacitance, bool time_mode)
+int32_t pcf8523_set_capacitance(bool capacitance)
 {   
     if(pcf_init_called == false) return PCF8523_INIT_FALSE_ERR;
     int32_t err;
@@ -177,9 +189,6 @@ int32_t pcf8523_configure_ctrl1(bool capacitance, bool time_mode)
 
     if(capacitance == PCF8523_CTRL_7PF)     current_val = current_val & 0b01111111;
     else /*PCF8523_CTRL_12PF5*/             current_val = current_val | ~(0b01111111);
-    
-    if(time_mode == PCF8523_CTRL_12HR_MODE) current_val = current_val | 0b00001000;
-    else /*PCF8523_CTRL_24HR_MODE*/         current_val = current_val & ~(0b00001000);
 
     buffer[0] = current_val;
 
@@ -190,7 +199,7 @@ int32_t pcf8523_configure_ctrl1(bool capacitance, bool time_mode)
         1
     );
 
-    return handle_err("Configure ctrl 1",err);
+    return handle_err("Set Capacitance 1",err);
 
 }
 
@@ -247,6 +256,7 @@ int32_t pcf8523_adjust_datetime(Datetime* time_now)
 
     return res;      
 }
+
 
 void print_datetime(Datetime *datetime)
 {
