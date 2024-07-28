@@ -279,24 +279,48 @@ static int32_t ws2812_show_datetime(Datetime *time_now, led_strip_handle_t strip
     uint8_t minutes = time_now->minutes;
     int32_t err;
 
-    err = ws2812_clear(strip_handle);
+    int32_t buffer = 0;
+
+    //Write to buffer
     if(time_now->show_hours == false){
-        ws2812_show_number(255, 3, strip_handle);
-        ws2812_show_number(255, 2, strip_handle);
+        buffer = ws2812_update_buffer(255,3,buffer);
+        buffer = ws2812_update_buffer(255,2,buffer);
     }
     else{
-        ws2812_show_number(hours / 10, 3, strip_handle);
-        ws2812_show_number(hours % 10, 2, strip_handle);
+        buffer = ws2812_update_buffer(hours / 10, 3, buffer);
+        buffer = ws2812_update_buffer(hours % 10, 2, buffer);
     }
 
     if(time_now->show_minutes == false){
-        ws2812_show_number(255, 1, strip_handle);
-        ws2812_show_number(255, 0, strip_handle);
+        buffer = ws2812_update_buffer(255, 1, buffer);
+        buffer = ws2812_update_buffer(255, 0, buffer);
     }
     else{
-        ws2812_show_number(minutes / 10, 1, strip_handle);
-        ws2812_show_number(minutes % 10, 0, strip_handle);
+        buffer = ws2812_update_buffer(minutes / 10, 1, buffer);
+        buffer = ws2812_update_buffer(minutes % 10, 0, buffer);
     }
+
+    uint16_t sat = 255;
+    uint16_t val = 5;
+    uint32_t hue = 110;
+
+    err = ws2812_clear(strip_handle);
+
+    for(int idx = 0; idx < PCB_NEOPIXEL_COUNT; idx++)
+    {
+        if(buffer & 1){
+            ws2812_set_pixel_hsv(strip_handle,idx,hue,sat,val);
+        }
+        else{
+            ws2812_set_pixel_hsv(strip_handle,idx,hue,sat,0); //Set to 0 brightness
+        }
+        
+        hue = hue + 5;           //So that during blinking there is no colour change
+        buffer = (buffer >> 1);
+    }
+
+
+    ws2812_set_pixel_hsv(strip_handle,PCB_CLOCKIDX_SEP,hue,0,val); //Set seperator to white
     
     err = ws2812_show(strip_handle);
     return err;

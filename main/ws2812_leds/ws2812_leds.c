@@ -199,16 +199,15 @@ int32_t ws2812_update_buffer(uint8_t number, uint8_t digit, int32_t buffer)
     for(int i = 0; i < 7; i++)
     {
         show_val = digit_map & 1;
-        if(show_val){
-            buffer = buffer | (1 << show_val);
-        }
-        else{
-            buffer = buffer & ~(1 << show_val);
-        }
+
+        if(show_val)  buffer = buffer |  (1 << starting_index);
+        else          buffer = buffer & ~(1 << starting_index);
 
         starting_index = starting_index + 1;
         digit_map = digit_map >> 1;
     }
+
+    ESP_LOGD("ws2812_buffer", "Buffer updated to (look at bin) %li",buffer);
 
     return buffer;
 }

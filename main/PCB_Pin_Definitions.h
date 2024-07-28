@@ -16,6 +16,7 @@
  
 #define PCB_NEOPIXEL_PIN    GPIO_NUM_17           // Pin connected to first NEOPIXEL LED
 #define PCB_NEOPIXEL_COUNT  29                    // Number of NEOPIXELS, 7 + 7 + 1 + 7 + 7
+#define PCB_CLOCKIDX_SEP    14                    // Index of the clock seperator
  
 #define PCB_I2C_SDA         GPIO_NUM_38           // Connected to IMU, RTC
 #define PCB_I2C_SCL         GPIO_NUM_39           // Connected to IMU, RTC
