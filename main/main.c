@@ -73,13 +73,15 @@ void app_main(void)
     // I2C BUS -----------------------------------
     LSM_DriverConfig_t ClockIMU; 
 
-    init_err = init_err & pcf8523_init(PCB_I2C_PORT);
-    init_err = init_err & pcf8523_init(PCF8523_CTRL_7PF);
+    init_err = init_err | pcf8523_init(PCB_I2C_PORT);
+    init_err = init_err | pcf8523_init(PCF8523_CTRL_7PF);
 
-    init_err = init_err & lsm_init(&ClockIMU, PCB_I2C_PORT, PCB_LSM_SA);
-    init_err = init_err & lsm_configure(&ClockIMU,
-        LSM6DSOX_XL_ODR_12Hz5, LSM6DSOX_4g,
+    init_err = init_err | lsm_init(&ClockIMU, PCB_I2C_PORT, PCB_LSM_SA);
+    init_err = init_err | lsm_configure(&ClockIMU,
+        LSM6DSOX_XL_ODR_104Hz, LSM6DSOX_2g,
         LSM6DSOX_GY_ODR_12Hz5, LSM6DSOX_500dps);
+
+    init_err = init_err | lsm_configure_activity(&ClockIMU);
 
 
     // LEDs -----------------------------------
@@ -129,6 +131,11 @@ void app_main(void)
     //Main Event Loop
     while(1)
     {   
+        int8_t res =  lsm_check_wake(&ClockIMU);
+        if(res)
+        {
+            ESP_LOGI(TAG,"Wake activity check %i",res);
+        }
         if(curr_mode == MODE_IDLE) 
         {
             // Read from PCF, update LED clock if needed. Check for Either PB press to change to MODE_SET_TIME
@@ -145,6 +152,9 @@ void app_main(void)
             }
 
             if(pushbutton_press_detected(&ClockPbLeft) || pushbutton_press_detected(&ClockPbRight)){ //Press any button to switch to set time mode
+                DatetimeShown.hours   = DatetimeNow.hours;
+                DatetimeShown.minutes = DatetimeNow.minutes;
+
                 ESP_LOGI(TAG,"Changing to MODE_SET_TIME");
                 DatetimeNow.last_pcf_update = esp_log_timestamp();
                 curr_mode = MODE_SET_TIME;
@@ -180,7 +190,7 @@ void app_main(void)
             else if(pushbutton_press_detected(&ClockPbRight)) //Increment hours/minutes
             {
                 if(IDLE_digit_update_hours){
-                    if(DatetimeNow.hours >= 23)   DatetimeNow.hours = 1;
+                    if(DatetimeNow.hours >= 23)   DatetimeNow.hours = 0;
                     else                          DatetimeNow.hours = DatetimeNow.hours + 1;
                 }
                 else{
@@ -261,13 +271,14 @@ static void init_gpios(void)
     gpio_set_pull_mode(PCB_LED0, GPIO_PULLDOWN_ONLY);
     gpio_set_pull_mode(PCB_LED1, GPIO_PULLDOWN_ONLY);
 
+    gpio_set_direction(PCB_LSM_INT1, GPIO_MODE_INPUT);
+
     gpio_set_level(PCB_BUCK_CTRL,1); //Turn on 3V7 for i2c bus
 
 }
 
 /**
- * @brief Show the time currently in the Datetime Struct. If Datetime.hours or Datetime.minutes
- * is 255, write 255 to ws2812_show_number, which will clear that digit.
+ * @brief Show the time currently in the Datetime Struct. 
  * 
  * @param time_now 
  * @param strip_handle

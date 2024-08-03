@@ -54,5 +54,7 @@ int32_t lsm_data_ready(LSM_DriverConfig_t *sensor_cfg);
 
 int32_t lsm_update_raw(LSM_DriverConfig_t *sensor_cfg);
 int32_t lsm_convert_raw(LSM_DriverConfig_t *sensor_cfg);
+int32_t lsm_configure_activity(LSM_DriverConfig_t *sensor_cfg);
+int8_t lsm_check_wake(LSM_DriverConfig_t *sensor_cfg);
 
 #endif //LSM6DSOX_DRV

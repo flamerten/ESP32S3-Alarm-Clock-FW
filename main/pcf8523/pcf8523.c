@@ -9,7 +9,10 @@
  *  - https://www.nxp.com/docs/en/data-sheet/PCF8523.pdf 
  * 
  * The goal is to create a platform independent driver where the user simply has to edit the platform independent commands
- * to get the PCF driver working in any embedded environment
+ * to get the PCF driver working in any embedded environment. 
+ * 
+ * Note that the PCF8523_Config object IS ALREADY defined, as there is the assumption there will be one and only one PCF RTC 
+ * in the system at all times.
  * 
  */
 

@@ -308,4 +308,68 @@ int32_t lsm_data_ready(LSM_DriverConfig_t *sensor_cfg)
 
     return (xl_reg & gy_reg);
 }
+/**
+ * @brief Refer to AN5272: Activity/inactivity and motion/stationary recognition
+ * 
+ * @param sensor_cfg 
+ * @return int32_t 
+ */
+int32_t lsm_configure_activity(LSM_DriverConfig_t *sensor_cfg)
+{
+    //Enable interrupt with inactivity configuration
+    int err = 0;
+
+    err = err | lsm6dsox_xl_hp_path_internal_set(&(sensor_cfg->dev_ctx), LSM6DSOX_USE_SLOPE); // Or LSM6DSOX_USE_HPF
+    err = err | lsm6dsox_wkup_threshold_set(&(sensor_cfg->dev_ctx), 2);
+
+    // /** Set the maximum duration to go into sleep mode/activity mode based on ODR_XL
+    //  *  Duration is 4 bits If ODR_XL is 12Hz5,
+    //  *  - 512/12.5 = 40.96s of inactivity before sleep occurs.
+    //  */
+    // err = err | lsm6dsox_act_sleep_dur_set(&(sensor_cfg->dev_ctx),0b0010); //2x40.96 
+    // /** Set wakeup duration event. 1 bit 1 ODR time. Number of samples?
+    //  *  Duration is 2 bits, If ODR_XL is 12Hz5,
+    //  *  Wakeup duration time = 1/12.5 = 0.08s
+    //  */
+    // err = err | lsm6dsox_wkup_dur_set(&(sensor_cfg->dev_ctx),0b00); //1 sample to wakeup
+
+    // Enable Interrupt
+    err = err | lsm6dsox_act_mode_set(&(sensor_cfg->dev_ctx), LSM6DSOX_XL_12Hz5_GY_PD);
+
+
+    // Drive interrupt to INT1
+    lsm6dsox_pin_int1_route_t int1_route_config;
+    err = err | lsm6dsox_pin_int1_route_get(&(sensor_cfg->dev_ctx),&int1_route_config);
+    int1_route_config.wake_up = PROPERTY_ENABLE;
+    err = err | lsm6dsox_pin_int1_route_set(&(sensor_cfg->dev_ctx),int1_route_config);
+
+    return err;
+    //return handle_esp_err("lsm configure wake",err);
+
+}
+
+int8_t lsm_check_wake(LSM_DriverConfig_t *sensor_cfg)
+{
+    lsm6dsox_all_sources_t all_source;
+    /* Check if Wake-Up events */
+    lsm6dsox_all_sources_get(&(sensor_cfg->dev_ctx), &all_source);
+
+    uint8_t total = 0;
+
+    if (all_source.wake_up) {
+      if (all_source.wake_up_x) {
+        total += 0b001;
+      }
+
+      if (all_source.wake_up_y) {
+        total += 0b010;
+      }
+
+      if (all_source.wake_up_z) {
+        total += 0b100;
+      }
+    }
+
+    return total;
+}
 
