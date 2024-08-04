@@ -30,4 +30,3 @@
  
 #define PCB_BATT_ADC        GPIO_NUM_6            // Multiply ADC reading by 2 to get BATT Voltage. (BATT -  100K | 100k - GND)
 
-

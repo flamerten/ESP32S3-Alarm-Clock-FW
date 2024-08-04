@@ -244,12 +244,12 @@ int32_t pcf8523_adjust_datetime(Datetime* time_now)
 {   
     if(pcf_init_called == false) return PCF8523_INIT_FALSE_ERR;
     uint8_t buffer[7] = {bin2bcd(time_now->seconds),
-                         bin2bcd(time_now->minutes),
-                         bin2bcd(time_now->hours),
-                         bin2bcd(time_now->day),
-                         bin2bcd(0), // skip weekdays
-                         bin2bcd(time_now->month),
-                         bin2bcd(time_now->year - 2000U)};
+                        bin2bcd(time_now->minutes),
+                        bin2bcd(time_now->hours),
+                        bin2bcd(time_now->day),
+                        bin2bcd(0), // skip weekdays
+                        bin2bcd(time_now->month),
+                        bin2bcd(time_now->year - 2000U)};
     
     int32_t res = platform_write(
         &(pcf8523_config.i2c_sensor_handle),

@@ -2,7 +2,10 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+
 #include "driver/gpio.h"
+#include "driver/adc.h"
+#include "esp_adc_cal.h"
 
 #include "pcf8523/pcf8523.h"
 #include "ws2812_leds/ws2812_leds.h"
@@ -18,6 +21,7 @@
 #define PB_ACTIVE_HIGH 1
 #define PB_ACTIVE_LOW  0
 
+#define BATT_ADC_CHANNEL    ADC1_CHANNEL_5 //GPIO6 - PCB_BATT_ADC > GPIO_NUM_6
 
 static const char *TAG = "main.c";
 
@@ -47,6 +51,8 @@ enum StateMachine curr_mode = MODE_IDLE;
 static esp_err_t main_i2c_master_init(void);
 static void init_gpios(LSM_DriverConfig_t *imu_config);
 
+static float get_batt_voltage(void);
+
 static int32_t ws2812_show_datetime(Datetime *time_now, led_strip_handle_t strip_handle, bool animate);
 
 static void pushbutton_configure(PushButton_t *push_button_config, gpio_num_t gpio_num, bool active_high);
@@ -61,6 +67,12 @@ static led_strip_handle_t ClockLEDs;
 PushButton_t ClockPbLeft;
 PushButton_t ClockPbRight;
 
+Datetime DatetimeShown;  // The Datetime shown on the LEDs
+Datetime DatetimeNow;    // The Datetime extracted from the RTC
+
+static esp_adc_cal_characteristics_t adc1_chars;
+
+// Global Variables //HACK should be avoided?
 uint32_t g_clock_hue = 0;    //Global variable - starting hue of clock. Increments during state change from INACTIVE to IDLE
 
 void app_main(void)
@@ -81,7 +93,9 @@ void app_main(void)
     //Initialisation -----------------------------
 
     init_gpios(&ClockIMU);
-    main_i2c_master_init(); //NOTE: I2C init must come after turning on the 3V7 Bus
+    main_i2c_master_init(); //NOTE: I2C init must come AFTER turning on the 3V7 Bus
+
+    get_batt_voltage();
 
     int32_t init_err = 0;
 
@@ -96,10 +110,8 @@ void app_main(void)
 
     init_err = init_err | lsm_configure_activity(&ClockIMU);
 
-
     // LEDs -----------------------------------
     init_err = ws2812_init_leds(&ClockLEDs, PCB_NEOPIXEL_PIN, PCB_NEOPIXEL_COUNT);
-
 
     // Push Buttons -------------------------------
     pushbutton_configure(&ClockPbLeft, PCB_PB_LEFT, PB_ACTIVE_LOW);
@@ -112,9 +124,6 @@ void app_main(void)
 
     // Set up -----------------------------
 
-    Datetime DatetimeShown;  // The Datetime shown on the LEDs
-    Datetime DatetimeNow;    // The Datetime extracted from the RTC
-
     #ifdef SET_RTC_TIME
     DatetimeShown.minutes = RTC_MINS;
     DatetimeShown.hours = RTC_HOURS;
@@ -125,25 +134,23 @@ void app_main(void)
     pcf8523_adjust_datetime(&DatetimeShown);
 
     ESP_LOGI(TAG, "Using fw RTC Values: %i:%i", RTC_HOURS,RTC_MINS);
-    #else  // SET_RTC_TIME is not defined in #define
+    #else  // SET_RTC_TIME is not defined in #define, use values stored in pcf
     pcf8523_get_datetime(&DatetimeNow); //Do the update in main loop
     DatetimeShown.show_hours = true;
     DatetimeShown.show_minutes = true;
 
-    ESP_LOGI(TAG, "Using pcf time Values: %i:%i", DatetimeNow.hours, DatetimeNow.minutes);
+    ESP_LOGI(TAG, "Using pcf time Values: %i:%i:%i", DatetimeNow.hours, DatetimeNow.minutes,DatetimeNow.seconds);
     #endif // SET_RTC_TIME
     //ws2812_show_datetime(&DatetimeNow,ClockLEDs);
 
     bool IDLE_digit_update_hours = 0;        // 0 is hours, 1 is updating minutes
-
     uint32_t last_blink_time = 0;
     bool blink_status = 0;                   // Used during MODE_IDLE to blink the digits. 1, digit is cleared. 0, digit is shown
 
-    change_mode(MODE_INACTIVE);
     bool animate_flag = false; //Animate the clock when changing from MODE_INACTVITE to MODE_IDLE
 
+    change_mode(MODE_INACTIVE);
     
-
     //Main Event Loop
     while(1)
     {   
@@ -165,11 +172,15 @@ void app_main(void)
             pcf8523_get_datetime(&DatetimeNow);
 
             //Only update the clock if there is a change in time, OR animate flag is raised -> during state change
-            if( (DatetimeShown.minutes != DatetimeNow.minutes) | (DatetimeShown.hours != DatetimeNow.hours) | animate_flag)
+            if( animate_flag | 
+                (DatetimeShown.minutes != DatetimeNow.minutes) | 
+                (DatetimeShown.hours != DatetimeNow.hours) | 
+                (DatetimeShown.seconds != DatetimeNow.seconds) )
             {
-                ESP_LOGI(TAG,"Timing update from PCF: %i:%i",DatetimeNow.hours,DatetimeNow.minutes);
+                ESP_LOGI(TAG,"Timing update from PCF: %i:%i:%i",DatetimeNow.hours,DatetimeNow.minutes,DatetimeNow.seconds);
                 DatetimeShown.hours   = DatetimeNow.hours;
                 DatetimeShown.minutes = DatetimeNow.minutes;
+                DatetimeShown.seconds = DatetimeNow.seconds;
 
                 DatetimeShown.show_hours = true;
                 DatetimeShown.show_minutes = true;
@@ -249,6 +260,7 @@ void app_main(void)
             if(curr_time - DatetimeNow.last_pcf_update >= 5000){ //If no change for 5s, switch back to idle mode
                 DatetimeShown.show_hours = true;
                 DatetimeShown.show_minutes = true;
+                DatetimeNow.seconds = 0; //Reset seconds to 0
 
                 pcf8523_adjust_datetime(&DatetimeNow); //Write new val to PCF
                 change_mode(MODE_IDLE);
@@ -291,12 +303,43 @@ static void init_gpios(LSM_DriverConfig_t *imu_config)
     gpio_set_pull_mode(PCB_LED0, GPIO_PULLDOWN_ONLY);
     gpio_set_pull_mode(PCB_LED1, GPIO_PULLDOWN_ONLY);
 
-    //Buck converter (3V7). //NOTE MUST BE TURNED ON. for the I2C bus to function properly 
+    //Buck converter (3V7). //NOTE: MUST BE TURNED ON. for the I2C bus to function properly 
     gpio_set_direction(PCB_BUCK_CTRL, GPIO_MODE_OUTPUT);
     gpio_set_level(PCB_BUCK_CTRL,1);
 
-    //LSM Interrupt
+    //LSM Interrupt Pin
     gpio_set_direction(PCB_LSM_INT1, GPIO_MODE_INPUT);
+
+    //Analog Read Configuration //HACK this ver of ADC reading is depreceated
+    //Reference used: https://docs.espressif.com/projects/esp-idf/en/v4.4/esp32s3/api-reference/peripherals/adc.html
+    // - consider changing it to v5 espidf https://docs.espressif.com/projects/esp-idf/en/v5.2.2/esp32s3/api-reference/peripherals/adc_continuous.html  
+    int adc_atten =  ADC_ATTEN_DB_12; //0 mV ~ 3100 mV 
+    int adc_calib_scheme = ESP_ADC_CAL_VAL_EFUSE_TP_FIT; //For esp target ESP32S3
+    
+    esp_err_t ret = esp_adc_cal_check_efuse(adc_calib_scheme);
+    if (ret == ESP_ERR_NOT_SUPPORTED)         ESP_LOGW("ADC", "Calibration scheme not supported, skip software calibration");
+    else if (ret == ESP_ERR_INVALID_VERSION)  ESP_LOGW("ADC", "eFuse not burnt, skip software calibration");
+    else if (ret == ESP_ERR_INVALID_ARG)      ESP_LOGE("ADC", "Invalid arg");
+    else{
+        esp_adc_cal_characterize(ADC_UNIT_1, adc_atten, ADC_WIDTH_BIT_DEFAULT, 0, &adc1_chars);
+    }                                 
+
+    ESP_ERROR_CHECK( adc1_config_channel_atten(BATT_ADC_CHANNEL, adc_atten) );
+}
+
+/**
+ * @brief Get battery voltage of the PCB, by reading the ADC of GPIO_NUM_6 and multiplying by 2
+ * 
+ * @return float 
+ */
+static float get_batt_voltage(void)
+{   
+    int adc_raw = adc1_get_raw(BATT_ADC_CHANNEL);
+    uint32_t adc_voltage = esp_adc_cal_raw_to_voltage(adc_raw, &adc1_chars); //Returns in mv
+    float batt_voltage = adc_voltage/1000.0 * 2;                             //Convert to V, multiply by 2
+
+    ESP_LOGI(TAG,"Batt Voltage %.2fmv",batt_voltage);
+    return batt_voltage;
 }
 
 /**
@@ -363,9 +406,15 @@ static int32_t ws2812_show_datetime(Datetime *time_now, led_strip_handle_t strip
     {
         err = err | ws2812_set_pixel_hsv(strip_handle,PCB_CLOCKIDX_SEP,hue,0,0); 
     }
-    else                                                                 //Set seperator to white 
+    
+    //Else we toggle the seperator depending on the seconds
+    else if(time_now->seconds%2) //White
     {
-       err = err | ws2812_set_pixel_hsv(strip_handle,PCB_CLOCKIDX_SEP,hue,0,val); 
+        ws2812_set_pixel_hsv(strip_handle,PCB_CLOCKIDX_SEP,0,0,5); //white 
+    }
+    else                         //Off
+    {
+        ws2812_set_pixel_hsv(strip_handle,PCB_CLOCKIDX_SEP,0,0,0); //white
     }
 
     err = ws2812_show(strip_handle);
