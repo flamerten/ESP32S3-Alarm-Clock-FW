@@ -3,6 +3,11 @@
  * @author             Samuel Yow (flamerten@gmail.com)
  * @brief              LSM6DSOX_driver driver file for ESP-iDF, based on ST's lsm6dsox_reg.c 
  *                     PID driver https://github.com/STMicroelectronics/lsm6dsox-pid.
+ * 
+ * Resources: 
+ * - https://github.com/STMicroelectronics/STMems_Standard_C_drivers/tree/master/lsm6dsox_STdC 
+ * - https://www.st.com/resource/en/datasheet/lsm6dsox.pdf
+ * - AN5272 LSM6DSOX: always-on 3-axis accelerometer and 3-axis gyroscope
  */
 
 #include "lsm6dsox_driver.h"
@@ -112,6 +117,9 @@ static int32_t platform_read(void *handle, uint8_t Reg, uint8_t *Bufp, uint16_t 
 
 //Public Functions
 
+
+/* LSM6DSOX Configuration Functions ------------------------------------------*/
+
 /**
  * @brief Initialises the LSM6DSOX unit given the i2c port number and its i2c address. Checks if the sensor exists
  * and then resets the senosr to default config
@@ -202,6 +210,8 @@ int32_t lsm_configure(LSM_DriverConfig_t *sensor_config,
     
     return ret;
 }
+
+/* LSM6DSOX Data Acquisition Functions ------------------------------------------*/
 
 /**
  * @brief    Update sensor_cfg->Acc_Raw and sensor_cfg->Gyr_Raw
@@ -308,8 +318,13 @@ int32_t lsm_data_ready(LSM_DriverConfig_t *sensor_cfg)
 
     return (xl_reg & gy_reg);
 }
+
+
+/* LSM6DSOX Activity/Inactivity Functions ------------------------------------------*/
+
 /**
- * @brief Refer to AN5272: Activity/inactivity and motion/stationary recognition
+ * @brief Refer to AN5272: Activity/inactivity and motion/stationary recognition. Configure INT1 
+ * in pulsed mode for activity/inactivity detection
  * 
  * @param sensor_cfg 
  * @return int32_t 
@@ -318,58 +333,48 @@ int32_t lsm_configure_activity(LSM_DriverConfig_t *sensor_cfg)
 {
     //Enable interrupt with inactivity configuration
     int err = 0;
+    stmdev_ctx_t *ctx = &(sensor_cfg->dev_ctx);
 
-    err = err | lsm6dsox_xl_hp_path_internal_set(&(sensor_cfg->dev_ctx), LSM6DSOX_USE_SLOPE); // Or LSM6DSOX_USE_HPF
-    err = err | lsm6dsox_wkup_threshold_set(&(sensor_cfg->dev_ctx), 2);
+    err = err | lsm6dsox_xl_hp_path_internal_set(ctx, LSM6DSOX_USE_SLOPE);   // Or LSM6DSOX_USE_HPF
 
-    // /** Set the maximum duration to go into sleep mode/activity mode based on ODR_XL
-    //  *  Duration is 4 bits If ODR_XL is 12Hz5,
-    //  *  - 512/12.5 = 40.96s of inactivity before sleep occurs.
-    //  */
-    // err = err | lsm6dsox_act_sleep_dur_set(&(sensor_cfg->dev_ctx),0b0010); //2x40.96 
-    // /** Set wakeup duration event. 1 bit 1 ODR time. Number of samples?
-    //  *  Duration is 2 bits, If ODR_XL is 12Hz5,
-    //  *  Wakeup duration time = 1/12.5 = 0.08s
-    //  */
-    // err = err | lsm6dsox_wkup_dur_set(&(sensor_cfg->dev_ctx),0b00); //1 sample to wakeup
+    err = err | lsm6dsox_wkup_ths_weight_set(ctx, LSM6DSOX_LSb_FS_DIV_64);   // Weight of 1LSB of wakeup threshold. FS/64
+    err = err | lsm6dsox_wkup_threshold_set(ctx, 0b000010);                  // 6bit, act detection value > FS/64 * val (mg)
 
-    // Enable Interrupt
-    err = err | lsm6dsox_act_mode_set(&(sensor_cfg->dev_ctx), LSM6DSOX_XL_12Hz5_GY_PD);
+    err = err | lsm6dsox_wkup_dur_set(ctx, 0b0010);         // 4bit, act detection time > 1/ODR_XL * val (s)
 
+    //Note: val = 0 > 16/ODR_XL (default)
+    err = err | lsm6dsox_act_sleep_dur_set(ctx, 0b0111);    // 4bit. inact detection time > 512/ODR_XL * val (s). 
+
+    err = err | lsm6dsox_act_mode_set(ctx, LSM6DSOX_XL_12Hz5_GY_PD); // Enable act/inact detection. Config Gyro/Accel reaction
 
     // Drive interrupt to INT1
     lsm6dsox_pin_int1_route_t int1_route_config;
-    err = err | lsm6dsox_pin_int1_route_get(&(sensor_cfg->dev_ctx),&int1_route_config);
+    err = err | lsm6dsox_pin_int1_route_get(ctx,&int1_route_config);
     int1_route_config.wake_up = PROPERTY_ENABLE;
-    err = err | lsm6dsox_pin_int1_route_set(&(sensor_cfg->dev_ctx),int1_route_config);
+    err = err | lsm6dsox_pin_int1_route_set(ctx,int1_route_config);
+    
+    err = handle_esp_err("lsm configure wake",err);
 
     return err;
-    //return handle_esp_err("lsm configure wake",err);
 
 }
 
 int8_t lsm_check_wake(LSM_DriverConfig_t *sensor_cfg)
 {
     lsm6dsox_all_sources_t all_source;
-    /* Check if Wake-Up events */
+    /* Check for wake-Up events */
     lsm6dsox_all_sources_get(&(sensor_cfg->dev_ctx), &all_source);
+    //static const char *TAG = "LSM wake";
 
-    uint8_t total = 0;
-
-    if (all_source.wake_up) {
-      if (all_source.wake_up_x) {
-        total += 0b001;
-      }
-
-      if (all_source.wake_up_y) {
-        total += 0b010;
-      }
-
-      if (all_source.wake_up_z) {
-        total += 0b100;
-      }
+    if(all_source.wake_up){
+        //ESP_LOGI(TAG,"LSM Woke Up");
+        return LSM_WAKE_STATUS_ACTIVE;
+    }
+    else if (all_source.sleep_state){
+        return LSM_WAKE_STATUS_INACTIVE;
     }
 
-    return total;
+    //ESP_LOGW(TAG,"No reason for wakeup"); //Shouldnt come here
+    return 0;
 }
 

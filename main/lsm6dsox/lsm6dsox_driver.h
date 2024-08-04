@@ -18,6 +18,9 @@
 
 #define I2C_MASTER_TIMEOUT_MS 1000
 
+#define LSM_WAKE_STATUS_ACTIVE     1
+#define LSM_WAKE_STATUS_INACTIVE   2
+
 /**
  * @brief Struct that holds IMU data. Is passed to platform read and write. Should be declared
  * but not edited directly.

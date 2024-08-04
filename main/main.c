@@ -18,6 +18,10 @@
 #define PB_ACTIVE_HIGH 1
 #define PB_ACTIVE_LOW  0
 
+
+static const char *TAG = "main.c";
+
+
 typedef struct PushButton
 {   
     // Configurations
@@ -31,22 +35,33 @@ typedef struct PushButton
 } PushButton_t;
 
 enum StateMachine {
-  MODE_IDLE = 0,
-  MODE_SET_TIME,  
+    MODE_INACTIVE = 0,     //When LSM is inactive
+    MODE_IDLE,
+    MODE_SET_TIME,  
 };
 
-static const char *TAG = "main.c";
-
+enum StateMachine curr_mode = MODE_IDLE;
 
 // Function Prototypes ---------------------/
 
 static esp_err_t main_i2c_master_init(void);
-static void init_gpios(void);
+static void init_gpios(LSM_DriverConfig_t *imu_config);
 
-static int32_t ws2812_show_datetime(Datetime *time_now, led_strip_handle_t strip_handle);
+static int32_t ws2812_show_datetime(Datetime *time_now, led_strip_handle_t strip_handle, bool animate);
 
 static void pushbutton_configure(PushButton_t *push_button_config, gpio_num_t gpio_num, bool active_high);
 static bool pushbutton_press_detected(PushButton_t *push_button_config);
+
+static void change_mode(enum StateMachine new_mode);
+
+// Objects --------------------------------/
+static LSM_DriverConfig_t ClockIMU;
+static led_strip_handle_t ClockLEDs;
+
+PushButton_t ClockPbLeft;
+PushButton_t ClockPbRight;
+
+uint32_t g_clock_hue = 0;    //Global variable - starting hue of clock. Increments during state change from INACTIVE to IDLE
 
 void app_main(void)
 {   
@@ -65,32 +80,28 @@ void app_main(void)
 
     //Initialisation -----------------------------
 
-    init_gpios();
-    main_i2c_master_init();
+    init_gpios(&ClockIMU);
+    main_i2c_master_init(); //NOTE: I2C init must come after turning on the 3V7 Bus
 
     int32_t init_err = 0;
 
-    // I2C BUS -----------------------------------
-    LSM_DriverConfig_t ClockIMU; 
-
+    // I2C BUS ----------------------------------- 
     init_err = init_err | pcf8523_init(PCB_I2C_PORT);
     init_err = init_err | pcf8523_init(PCF8523_CTRL_7PF);
 
     init_err = init_err | lsm_init(&ClockIMU, PCB_I2C_PORT, PCB_LSM_SA);
     init_err = init_err | lsm_configure(&ClockIMU,
-        LSM6DSOX_XL_ODR_104Hz, LSM6DSOX_2g,
-        LSM6DSOX_GY_ODR_12Hz5, LSM6DSOX_500dps);
+        LSM6DSOX_XL_ODR_208Hz, LSM6DSOX_2g,
+        LSM6DSOX_GY_ODR_104Hz, LSM6DSOX_250dps);
 
     init_err = init_err | lsm_configure_activity(&ClockIMU);
 
 
     // LEDs -----------------------------------
-
-    led_strip_handle_t ClockLEDs;
     init_err = ws2812_init_leds(&ClockLEDs, PCB_NEOPIXEL_PIN, PCB_NEOPIXEL_COUNT);
 
-    PushButton_t ClockPbLeft;
-    PushButton_t ClockPbRight;
+
+    // Push Buttons -------------------------------
     pushbutton_configure(&ClockPbLeft, PCB_PB_LEFT, PB_ACTIVE_LOW);
     pushbutton_configure(&ClockPbRight, PCB_PB_RIGHT, PB_ACTIVE_LOW);
 
@@ -115,65 +126,76 @@ void app_main(void)
 
     ESP_LOGI(TAG, "Using fw RTC Values: %i:%i", RTC_HOURS,RTC_MINS);
     #else  // SET_RTC_TIME is not defined in #define
-    pcf8523_get_datetime(&DatetimeShown);
-    pcf8523_get_datetime(&DatetimeNow);
+    pcf8523_get_datetime(&DatetimeNow); //Do the update in main loop
+    DatetimeShown.show_hours = true;
+    DatetimeShown.show_minutes = true;
 
-    ESP_LOGI(TAG, "Using pcf time Values: %i:%i", DatetimeShown.hours, DatetimeShown.minutes);
+    ESP_LOGI(TAG, "Using pcf time Values: %i:%i", DatetimeNow.hours, DatetimeNow.minutes);
     #endif // SET_RTC_TIME
-    ws2812_show_datetime(&DatetimeNow,ClockLEDs);
+    //ws2812_show_datetime(&DatetimeNow,ClockLEDs);
 
-    enum StateMachine curr_mode = MODE_IDLE;
     bool IDLE_digit_update_hours = 0;        // 0 is hours, 1 is updating minutes
 
     uint32_t last_blink_time = 0;
     bool blink_status = 0;                   // Used during MODE_IDLE to blink the digits. 1, digit is cleared. 0, digit is shown
 
+    change_mode(MODE_INACTIVE);
+    bool animate_flag = false; //Animate the clock when changing from MODE_INACTVITE to MODE_IDLE
+
+    
+
     //Main Event Loop
     while(1)
     {   
-        int8_t res =  lsm_check_wake(&ClockIMU);
-        if(res)
+        if(curr_mode == MODE_INACTIVE)   //Just check if need to switch back to idle mode
         {
-            ESP_LOGI(TAG,"Wake activity check %i",res);
-        }
-        if(curr_mode == MODE_IDLE) 
-        {
-            // Read from PCF, update LED clock if needed. Check for Either PB press to change to MODE_SET_TIME
+            if(lsm_check_wake(&ClockIMU)==LSM_WAKE_STATUS_ACTIVE)
+            {   
+                g_clock_hue = (g_clock_hue + 20)%360;
+                animate_flag = true;
+                change_mode(MODE_IDLE);
+            }
+            else{
+                vTaskDelay(pdMS_TO_TICKS(20)); //Prevent watchdog error being thrown thrown
+            }
 
+        }
+        else if(curr_mode == MODE_IDLE)  // Read from PCF, update LED clock if needed. Check for Either PB press to change to MODE_SET_TIME
+        {
             pcf8523_get_datetime(&DatetimeNow);
 
-            if( (DatetimeShown.minutes != DatetimeNow.minutes) || (DatetimeShown.hours != DatetimeNow.hours) )
+            //Only update the clock if there is a change in time, OR animate flag is raised -> during state change
+            if( (DatetimeShown.minutes != DatetimeNow.minutes) | (DatetimeShown.hours != DatetimeNow.hours) | animate_flag)
             {
                 ESP_LOGI(TAG,"Timing update from PCF: %i:%i",DatetimeNow.hours,DatetimeNow.minutes);
                 DatetimeShown.hours   = DatetimeNow.hours;
                 DatetimeShown.minutes = DatetimeNow.minutes;
 
-                ws2812_show_datetime(&DatetimeShown,ClockLEDs);
+                DatetimeShown.show_hours = true;
+                DatetimeShown.show_minutes = true;
+                ws2812_show_datetime(&DatetimeShown,ClockLEDs,animate_flag);
+
+                animate_flag = false;
             }
 
-            if(pushbutton_press_detected(&ClockPbLeft) || pushbutton_press_detected(&ClockPbRight)){ //Press any button to switch to set time mode
+            //Poll alarm clock buttons to change state machine
+            if(pushbutton_press_detected(&ClockPbLeft) || pushbutton_press_detected(&ClockPbRight)) //Press any button to switch to set time mode
+            { 
                 DatetimeShown.hours   = DatetimeNow.hours;
                 DatetimeShown.minutes = DatetimeNow.minutes;
 
-                ESP_LOGI(TAG,"Changing to MODE_SET_TIME");
                 DatetimeNow.last_pcf_update = esp_log_timestamp();
-                curr_mode = MODE_SET_TIME;
+                change_mode(MODE_SET_TIME);
             }
+            else if(lsm_check_wake(&ClockIMU)==LSM_WAKE_STATUS_INACTIVE)               //Interrupt detected + inactivty detected
+            {   
+                DatetimeShown.show_hours = false;
+                DatetimeShown.show_minutes = false;
+                ws2812_show_datetime(&DatetimeShown,ClockLEDs,false);
 
-            // if(lsm_data_ready(&ClockIMU)){
-            //     lsm_update_raw(&ClockIMU);
-            //     lsm_convert_raw(&ClockIMU);
-
-            //     ESP_LOGI(TAG,"Acc(mg) %.2f %.2f %.2f",
-            //         ClockIMU.Acc_mg[0],
-            //         ClockIMU.Acc_mg[1],
-            //         ClockIMU.Acc_mg[2]);
-
-            //     ESP_LOGI(TAG,"Gyr(mdps) %.2f %.2f %.2f",
-            //         ClockIMU.Gyr_mdps[0],
-            //         ClockIMU.Gyr_mdps[1],
-            //         ClockIMU.Gyr_mdps[2]);
-            // }
+                change_mode(MODE_INACTIVE);
+                
+            }        
         }
         else if(curr_mode == MODE_SET_TIME){
             //Update DatetimeNow, and from there play with DatetimeShown. Then at the end write datetimenow to PCF.
@@ -229,11 +251,10 @@ void app_main(void)
                 DatetimeShown.show_minutes = true;
 
                 pcf8523_adjust_datetime(&DatetimeNow); //Write new val to PCF
-                ESP_LOGI(TAG,"Changing to MODE_IDLE");
-                curr_mode = MODE_IDLE;
+                change_mode(MODE_IDLE);
             }
 
-            ws2812_show_datetime(&DatetimeShown,ClockLEDs);
+            ws2812_show_datetime(&DatetimeShown,ClockLEDs,false);
         }
 
     }
@@ -262,19 +283,20 @@ static esp_err_t main_i2c_master_init(void)
  * WARNING: The buck converter MUST be turned on for peripherals on the I2C Bus to work.
  * 
  */
-static void init_gpios(void)
+static void init_gpios(LSM_DriverConfig_t *imu_config)
 {   
+    //LEDS
     gpio_set_direction(PCB_LED0, GPIO_MODE_OUTPUT);
     gpio_set_direction(PCB_LED1, GPIO_MODE_OUTPUT);
-    gpio_set_direction(PCB_BUCK_CTRL, GPIO_MODE_OUTPUT);
-    
     gpio_set_pull_mode(PCB_LED0, GPIO_PULLDOWN_ONLY);
     gpio_set_pull_mode(PCB_LED1, GPIO_PULLDOWN_ONLY);
 
+    //Buck converter (3V7). //NOTE MUST BE TURNED ON. for the I2C bus to function properly 
+    gpio_set_direction(PCB_BUCK_CTRL, GPIO_MODE_OUTPUT);
+    gpio_set_level(PCB_BUCK_CTRL,1);
+
+    //LSM Interrupt
     gpio_set_direction(PCB_LSM_INT1, GPIO_MODE_INPUT);
-
-    gpio_set_level(PCB_BUCK_CTRL,1); //Turn on 3V7 for i2c bus
-
 }
 
 /**
@@ -282,9 +304,10 @@ static void init_gpios(void)
  * 
  * @param time_now 
  * @param strip_handle
+ * @param animate true to animate, else, simply show in one shot
  * @return int32_t 
  */
-static int32_t ws2812_show_datetime(Datetime *time_now, led_strip_handle_t strip_handle)
+static int32_t ws2812_show_datetime(Datetime *time_now, led_strip_handle_t strip_handle, bool animate)
 {
     uint8_t hours   = time_now->hours;
     uint8_t minutes = time_now->minutes;
@@ -313,7 +336,7 @@ static int32_t ws2812_show_datetime(Datetime *time_now, led_strip_handle_t strip
 
     uint16_t sat = 255;
     uint16_t val = 5;
-    uint32_t hue = 110;
+    uint32_t hue = g_clock_hue;
 
     err = ws2812_clear(strip_handle);
 
@@ -328,11 +351,23 @@ static int32_t ws2812_show_datetime(Datetime *time_now, led_strip_handle_t strip
         
         hue = hue + 5;           //So that during blinking there is no colour change
         buffer = (buffer >> 1);
+        
+        if(animate){
+            vTaskDelay(pdMS_TO_TICKS(40));
+            ws2812_show(strip_handle);
+        }
     }
 
 
-    ws2812_set_pixel_hsv(strip_handle,PCB_CLOCKIDX_SEP,hue,0,val); //Set seperator to white
-    
+    if( (time_now-> show_hours == false) & (time_now->show_minutes == false)) //Turn off the seperator too
+    {
+        err = err | ws2812_set_pixel_hsv(strip_handle,PCB_CLOCKIDX_SEP,hue,0,0); 
+    }
+    else                                                                 //Set seperator to white 
+    {
+       err = err | ws2812_set_pixel_hsv(strip_handle,PCB_CLOCKIDX_SEP,hue,0,val); 
+    }
+
     err = ws2812_show(strip_handle);
     return err;
 }
@@ -379,7 +414,7 @@ static bool pushbutton_press_detected(PushButton_t *push_button_config)
 
     if      ( (push_button_config->is_active_high == PB_ACTIVE_HIGH) && (curr_level == 0) ) return 0; //Not being pressed
     else if ( (push_button_config->is_active_high == PB_ACTIVE_LOW)  && (curr_level == 1) ) return 0; //Not being pressed
-    else if (  ((curr_time - push_button_config->last_positive_read)  > PB_VALID_PRESS) /*&& change_detected*/)
+    else if ( ( (curr_time - push_button_config->last_positive_read)  > PB_VALID_PRESS) /*&& change_detected*/)
     {   
         ESP_LOGD(TAG, "PB GPIO %i Level: %i pressed", push_button_config->gpio_pin_no, curr_level);
 
@@ -388,4 +423,18 @@ static bool pushbutton_press_detected(PushButton_t *push_button_config)
         return 1;
     }
     return 0;
+}
+
+/**
+ * @brief Change state machine mode
+ * 
+ * @param new_mode must be from enum StateMachine
+ */
+static void change_mode(enum StateMachine new_mode)
+{
+    curr_mode = new_mode;
+    if(new_mode == MODE_IDLE)          ESP_LOGI("StateMachine", "MODE_IDLE");
+    else if(new_mode == MODE_SET_TIME) ESP_LOGI("StateMachine", "MODE_SET_TIME");
+    else if(new_mode == MODE_INACTIVE) ESP_LOGI("StateMachine", "MODE_INACTIVE");
+    
 }
